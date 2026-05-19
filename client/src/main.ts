@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Application, Graphics, Container, Rectangle, Ticker, Sprite, Assets } from 'pixi.js';
+import { Application, Graphics, Container, Rectangle, Ticker, Sprite, Assets, Text, TextStyle } from 'pixi.js';
 import { io, Socket } from 'socket.io-client';
 
 // Types
@@ -13,6 +13,7 @@ interface TokenData {
     avatarUrl?: string;
     type: 'character' | 'prop';
     hasMoved: boolean;
+    currentHealth?: number;
 }
 
 interface CharacterTemplate {
@@ -21,6 +22,7 @@ interface CharacterTemplate {
     speed: number;
     color: number;
     avatarUrl?: string;
+    maxHealth?: number;
 }
 
 interface PropTemplate {
@@ -37,6 +39,8 @@ let worldContainer: Container;
 let gridContainer: Container;
 let highlightContainer: Container;
 let tokensContainer: Container;
+let tooltipContainer: Container;
+let hoveredTokenId: string | null = null;
 const tokenGraphicsMap = new Map<string, Container>();
 const tokensDataMap = new Map<string, TokenData>();
 const animatingTokens = new Set<string>();
@@ -97,6 +101,7 @@ const roomInput = document.getElementById('room-id-input') as HTMLInputElement;
 const createRoomBtn = document.getElementById('create-room-btn')!;
 const joinRoomBtn = document.getElementById('join-room-btn')!;
 const leaveRoomBtn = document.getElementById('leave-room-btn')!;
+const changeNameBtn = document.getElementById('change-name-btn')!;
 const endTurnBtn = document.getElementById('end-turn-btn')!;
 const toggleSidePanelBtn = document.getElementById('toggle-side-panel-btn')!;
 const sidePanel = document.getElementById('side-panel')!;
@@ -112,9 +117,20 @@ const propsList = document.getElementById('props-list')!;
 // Character Form
 const charNameInput = document.getElementById('char-name') as HTMLInputElement;
 const charSpeedInput = document.getElementById('char-speed') as HTMLInputElement;
+const charHealthInput = document.getElementById('char-health') as HTMLInputElement;
 const charUrlInput = document.getElementById('char-url') as HTMLInputElement;
 const charColorInput = document.getElementById('char-color') as HTMLInputElement;
 const createCharBtn = document.getElementById('create-char-btn')!;
+
+
+// Preload SVGs
+const heartSvg = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+const skullSvg = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="gray"><path d="M12 2C6.48 2 2 6.48 2 12c0 2.21.72 4.25 1.93 5.92L2 22l4.08-1.93C7.75 21.28 9.79 22 12 22s4.25-.72 5.92-1.93L22 22l-1.93-4.08C21.28 16.25 22 14.21 22 12c0-5.52-4.48-10-10-10zm-3.5 13c-1.38 0-2.5-1.12-2.5-2.5S7.12 10 8.5 10s2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5zm7 0c-1.38 0-2.5-1.12-2.5-2.5S13.12 10 14.5 10s2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>';
+
+async function preloadIcons() {
+    await Assets.load({ alias: 'heart', src: heartSvg, format: 'svg', loadParser: 'loadSVG' });
+    await Assets.load({ alias: 'skull', src: skullSvg, format: 'svg', loadParser: 'loadSVG' });
+}
 
 // Local state for UI
 let isHost = false;
@@ -133,6 +149,7 @@ async function init() {
         resizeTo: window,
         backgroundColor: 0xe0e0e0,
     });
+    await preloadIcons();
     document.getElementById('game-container')!.appendChild(app.canvas);
 
     worldContainer = new Container();
@@ -144,6 +161,12 @@ async function init() {
     worldContainer.addChild(gridContainer);
     worldContainer.addChild(highlightContainer);
     worldContainer.addChild(tokensContainer);
+
+    // Add tooltip container
+    tooltipContainer = new Container();
+    tooltipContainer.zIndex = 2000;
+    worldContainer.addChild(tooltipContainer);
+    worldContainer.sortableChildren = true;
     app.stage.addChild(worldContainer);
 
     drawGrid();
@@ -362,6 +385,7 @@ function handleTokenClick(event: any) {
         for (const [, data] of tokensDataMap) {
             createOrUpdateToken(data);
         }
+        updateTooltip();
     }
 }
 
@@ -373,6 +397,7 @@ function deselectToken() {
     for (const [, data] of tokensDataMap) {
         createOrUpdateToken(data);
     }
+    updateTooltip();
 }
 
 function handleStageClick(event: any) {
@@ -512,6 +537,20 @@ async function createOrUpdateToken(data: any) { // using any locally for isHidde
         tokenContainer.cursor = data.type === 'prop' || data.hasMoved ? 'default' : 'pointer';
 
         tokenContainer.on('pointerup', handleTokenClick);
+
+        tokenContainer.on('pointerover', () => {
+            hoveredTokenId = data.id;
+            updateTooltip();
+            // Force redraw to show color border change
+            createOrUpdateToken(tokensDataMap.get(data.id)!);
+        });
+        tokenContainer.on('pointerout', () => {
+            if (hoveredTokenId === data.id) hoveredTokenId = null;
+            updateTooltip();
+            // Force redraw
+            createOrUpdateToken(tokensDataMap.get(data.id)!);
+        });
+
         (tokenContainer as any).tokenId = data.id;
 
         graphics = new Graphics();
@@ -626,12 +665,15 @@ async function createOrUpdateToken(data: any) { // using any locally for isHidde
     // Border overlay
     const border = tokenContainer.getChildByLabel('border') as Graphics;
     border.clear();
+    // For border use token's color, or yellow if selected, or gray if moved
     if (selectedTokenId === data.id) {
         border.lineStyle(4, 0xffaa00, 1);
+    } else if (hoveredTokenId === data.id) {
+        border.lineStyle(4, data.color, 1); // Hover state
     } else if (data.hasMoved) {
         border.lineStyle(2, 0x888888, 0.8);
     } else {
-        border.lineStyle(2, 0x000000, 0.5);
+        border.lineStyle(2, data.color, 1); // Selected color border instead of black
     }
 
     if (data.type === 'prop') {
@@ -653,6 +695,101 @@ function connectSocket() {
     });
     setupSocketListeners();
 }
+
+
+
+function updateTooltip() {
+    tooltipContainer.removeChildren();
+
+    // First update the health overlays directly on all tokens
+    for (const [tokenId, container] of tokenGraphicsMap) {
+        let healthOverlay = container.getChildByLabel('healthOverlay');
+        const token = tokensDataMap.get(tokenId);
+
+        // Remove existing overlay to rebuild it
+        if (healthOverlay) {
+            container.removeChild(healthOverlay);
+            healthOverlay.destroy({ children: true });
+        }
+
+        // Only show if selected or hovered, and if it's a character
+        if (token && token.type === 'character' && (hoveredTokenId === tokenId || selectedTokenId === tokenId)) {
+            const charTemplate = roomCharacters.find(c => c.id === token.templateId);
+            const maxHp = charTemplate ? (charTemplate.maxHealth || 10) : 10;
+            const hp = token.currentHealth !== undefined ? token.currentHealth : maxHp;
+
+            healthOverlay = new Container();
+            healthOverlay.label = 'healthOverlay';
+
+            const icon = new Sprite(hp <= 0 ? skullTexture : heartTexture);
+            icon.width = 24;
+            icon.height = 24;
+
+            // Heart is red, skull is gray. SVG fills might handle this, but let's just use the loaded textures.
+            healthOverlay.addChild(icon);
+
+            const hpText = new Text(hp.toString(), new TextStyle({
+                fontFamily: 'Arial',
+                fontSize: 12,
+                fill: '#ffffff',
+                fontWeight: 'bold',
+                align: 'center',
+                stroke: '#000000',
+                strokeThickness: 2
+            }));
+
+            // Center text inside icon
+            hpText.anchor.set(0.5);
+            hpText.position.set(12, 12);
+            healthOverlay.addChild(hpText);
+
+            // Bottom left of token
+            healthOverlay.position.set(-8, GRID_SIZE - 16);
+            healthOverlay.zIndex = 50; // Above border and avatar
+            container.addChild(healthOverlay);
+        }
+    }
+
+    const targetId = hoveredTokenId || selectedTokenId;
+    if (!targetId) return;
+
+    const token = tokensDataMap.get(targetId);
+    if (!token) return;
+
+    // Position floating name tooltip above the token
+    const tooltip = new Container();
+
+    let name = 'Prop';
+    if (token.type === 'character') {
+        const charTemplate = roomCharacters.find(c => c.id === token.templateId);
+        if (charTemplate) name = charTemplate.name;
+    } else {
+        const propTemplate = roomProps.find(p => p.id === token.templateId);
+        if (propTemplate) name = propTemplate.name;
+    }
+
+    const textStyle = new TextStyle({
+        fontFamily: 'Arial',
+        fontSize: 14,
+        fill: '#ffffff',
+        fontWeight: 'bold'
+    });
+    const text = new Text(escapeHtml(name), textStyle);
+
+    // Background width based on text
+    const bg = new Graphics();
+    bg.beginFill(0x000000, 0.7);
+    bg.drawRoundedRect(0, 0, text.width + 20, 30, 8);
+    bg.endFill();
+    tooltip.addChild(bg);
+
+    text.position.set(10, (30 - text.height) / 2);
+    tooltip.addChild(text);
+
+    tooltip.position.set(token.x + GRID_SIZE / 2 - (text.width + 20)/2, token.y - 35);
+    tooltipContainer.addChild(tooltip);
+}
+
 
 function setupSocketListeners() {
     socket.on('connect', () => {
@@ -765,6 +902,11 @@ app.canvas.addEventListener?.('contextmenu', (e: any) => {
         document.getElementById('cm-copy')!.classList.remove('hidden');
         document.getElementById('cm-toggle-visibility')!.classList.remove('hidden');
         document.getElementById('cm-paste')!.classList.add('hidden');
+        if (targetToken.type === 'character') {
+            document.getElementById('cm-change-health')!.classList.remove('hidden');
+        } else {
+            document.getElementById('cm-change-health')!.classList.add('hidden');
+        }
     } else {
         cmTargetTokenId = null;
         cmTargetCell = {x: cgX, y: cgY};
@@ -776,6 +918,7 @@ app.canvas.addEventListener?.('contextmenu', (e: any) => {
         } else {
             document.getElementById('cm-paste')!.classList.add('hidden');
         }
+        document.getElementById('cm-change-health')!.classList.add('hidden');
     }
 });
 
@@ -808,6 +951,24 @@ document.getElementById('cm-paste')!.addEventListener('click', () => {
             let template = roomCharacters.find(c => c.id === templateToken.templateId) || roomProps.find(p => p.id === templateToken.templateId);
             if (template) {
                spawnTokenFromTemplateAt(template, templateToken.type, cmTargetCell.x, cmTargetCell.y);
+            }
+        }
+    }
+    contextMenu.classList.add('hidden');
+});
+
+
+document.getElementById('cm-change-health')!.addEventListener('click', () => {
+    if (cmTargetTokenId && currentRoom) {
+        const token = tokensDataMap.get(cmTargetTokenId);
+        if (token && token.type === 'character') {
+            const currentHp = token.currentHealth !== undefined ? token.currentHealth : 10;
+            const newHpStr = prompt('Enter new health for ' + escapeHtml(token.id) + ':', currentHp.toString());
+            if (newHpStr !== null) {
+                const newHp = parseInt(newHpStr);
+                if (!isNaN(newHp)) {
+                    socket.emit('update_token', currentRoom, { id: cmTargetTokenId, currentHealth: newHp });
+                }
             }
         }
     }
@@ -887,6 +1048,11 @@ function setupUIListeners() {
         window.location.reload();
     });
 
+    changeNameBtn.addEventListener('click', () => {
+        localStorage.removeItem('casual_game_user');
+        window.location.reload();
+    });
+
     endTurnBtn.addEventListener('click', () => {
         if (currentRoom) {
             socket.emit('end_turn', currentRoom);
@@ -942,6 +1108,7 @@ openCharModalBtn.addEventListener('click', () => {
     charIdInput.value = '';
     charNameInput.value = '';
     charSpeedInput.value = '3';
+    charHealthInput.value = '10';
     charUrlInput.value = '';
     charColorInput.value = '#ff0000';
     charModal.classList.remove('hidden');
@@ -957,6 +1124,7 @@ saveCharBtn.addEventListener('click', () => {
     const id = charIdInput.value;
     const name = charNameInput.value.trim() || 'Hero';
     const speed = parseInt(charSpeedInput.value) || 3;
+    const maxHealth = parseInt(charHealthInput.value) || 10;
     const url = charUrlInput.value.trim();
     const colorStr = charColorInput.value.replace('#', '0x');
     const color = parseInt(colorStr, 16);
@@ -966,7 +1134,8 @@ saveCharBtn.addEventListener('click', () => {
         name,
         speed,
         color,
-        avatarUrl: url || undefined
+        avatarUrl: url || undefined,
+        maxHealth
     };
 
     if (id) {
@@ -998,7 +1167,7 @@ function renderCharacterList() {
         item.innerHTML = `
             <div class="list-item-info">
                 <strong>${escapeHtml(char.name)}</strong>
-                <small>Spd: ${char.speed}</small>
+                <small>Spd: ${char.speed} | HP: ${char.maxHealth || 10}</small>
             </div>
             <div class="list-item-actions">
                 <button class="btn primary small spawn-char-btn" data-id="${char.id}">Spawn</button>
@@ -1031,6 +1200,7 @@ function renderCharacterList() {
                 charIdInput.value = char.id;
                 charNameInput.value = char.name;
                 charSpeedInput.value = char.speed.toString();
+                charHealthInput.value = (char.maxHealth || 10).toString();
                 charUrlInput.value = char.avatarUrl || '';
                 charColorInput.value = '#' + char.color.toString(16).padStart(6, '0');
                 charModal.classList.remove('hidden');
@@ -1099,7 +1269,8 @@ function spawnTokenFromTemplateAt(template: any, type: 'character' | 'prop', gri
         speed: template.speed || 0,
         avatarUrl: template.avatarUrl,
         type: type,
-        hasMoved: false
+        hasMoved: false,
+        currentHealth: type === 'character' ? (template.maxHealth || 10) : undefined
     };
 
     socket.emit('spawn_token', currentRoom, tokenData);
@@ -1108,6 +1279,7 @@ function spawnTokenFromTemplateAt(template: any, type: 'character' | 'prop', gri
 // --- Animation Logic ---
 
 function animateTokenMovement(partialData: Partial<TokenData> & { id: string, x: number, y: number }) {
+    updateTooltip();
     const tokenGraphic = tokenGraphicsMap.get(partialData.id);
     const existingData = tokensDataMap.get(partialData.id);
 
