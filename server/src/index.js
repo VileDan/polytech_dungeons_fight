@@ -16,6 +16,22 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
+
+// Track active users
+const connectedUsers = {};
+
+io.use((socket, next) => {
+  const userId = socket.handshake.auth.userId;
+  const userName = socket.handshake.auth.userName;
+  if (!userId) {
+    return next(new Error("invalid username"));
+  }
+  socket.userId = userId;
+  socket.userName = userName;
+  connectedUsers[socket.id] = { userId, userName };
+  next();
+});
+
 // Game State
 const rooms = {};
 
@@ -25,8 +41,8 @@ io.on('connection', (socket) => {
   socket.on('create_room', (roomId) => {
     if (!rooms[roomId]) {
       rooms[roomId] = {
-        host: socket.id,
-        players: [socket.id],
+        host: socket.userId,
+        players: [socket.userId],
         map: { cols: 20, rows: 15 },
         tokens: [],
         characters: [],
@@ -50,7 +66,7 @@ io.on('connection', (socket) => {
       rooms[roomId].players.push(socket.id);
       socket.join(roomId);
       // Pass flag if joining player is host
-      const state = { ...rooms[roomId], isHost: rooms[roomId].host === socket.id };
+      const state = { ...rooms[roomId], isHost: rooms[roomId].host === socket.userId };
       socket.emit('room_joined', roomId, state);
       socket.to(roomId).emit('player_joined', socket.id);
       console.log(`User ${socket.id} joined room ${roomId}`);
@@ -96,7 +112,7 @@ io.on('connection', (socket) => {
 
 
   socket.on('update_map', (roomId, mapData) => {
-    if (rooms[roomId] && rooms[roomId].host === socket.id) {
+    if (rooms[roomId] && rooms[roomId].host === socket.userId) {
       rooms[roomId].map = mapData;
       io.to(roomId).emit('map_updated', mapData);
     }
@@ -113,14 +129,14 @@ io.on('connection', (socket) => {
   });
 
   socket.on('delete_token', (roomId, tokenId) => {
-    if (rooms[roomId] && rooms[roomId].host === socket.id) {
+    if (rooms[roomId] && rooms[roomId].host === socket.userId) {
       rooms[roomId].tokens = rooms[roomId].tokens.filter(t => t.id !== tokenId);
       io.to(roomId).emit('token_deleted', tokenId);
     }
   });
 
   socket.on('update_token', (roomId, tokenData) => {
-    if (rooms[roomId] && rooms[roomId].host === socket.id) {
+    if (rooms[roomId] && rooms[roomId].host === socket.userId) {
       const idx = rooms[roomId].tokens.findIndex(t => t.id === tokenData.id);
       if (idx !== -1) {
         rooms[roomId].tokens[idx] = { ...rooms[roomId].tokens[idx], ...tokenData };

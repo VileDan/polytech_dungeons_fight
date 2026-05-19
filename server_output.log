@@ -1,35 +1,42 @@
 Server listening on port 3000
-A user connected: yFjOYW8J0CNweWTQAAAB
-Room hostroom1 created by yFjOYW8J0CNweWTQAAAB
-Token spawned in room hostroom1: {
-  id: 'inst_wiqkd4oi9',
-  templateId: 'char_dd3m8dto9',
+A user connected: rtItHQLerMzd8nfeAAAB
+Room hostroom_test_2 created by rtItHQLerMzd8nfeAAAB
+Token spawned in room hostroom_test_2: {
+  id: 'inst_ayfdeg3nd',
+  templateId: 'char_ufwkuvo3c',
   x: 350,
   y: 300,
   color: 16711680,
   speed: 5,
-  avatarUrl: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Host',
+  avatarUrl: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Paladin',
   type: 'character',
   hasMoved: false
 }
-User disconnected: yFjOYW8J0CNweWTQAAAB
-A user connected: fzk65frzriqeJ1aNAAAD
-Room hostroom2 created by fzk65frzriqeJ1aNAAAD
-Token spawned in room hostroom2: {
-  id: 'inst_zmdmjrwpz',
-  templateId: 'char_4n3sdtnzm',
-  x: 50,
-  y: 200,
+Token spawned in room hostroom_test_2: {
+  id: 'inst_l71ihbk47',
+  templateId: 'char_ufwkuvo3c',
+  x: 450,
+  y: 300,
   color: 16711680,
   speed: 5,
-  avatarUrl: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Host',
+  avatarUrl: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Paladin',
   type: 'character',
   hasMoved: false
 }
-User disconnected: fzk65frzriqeJ1aNAAAD
-A user connected: PljMGIT9dREWw9W7AAAF
-Room hostroom3 created by PljMGIT9dREWw9W7AAAF
-User disconnected: PljMGIT9dREWw9W7AAAF
-A user connected: J50GX1Hu7YJsmKzjAAAH
-Room hostroom_test_1 created by J50GX1Hu7YJsmKzjAAAH
-User disconnected: J50GX1Hu7YJsmKzjAAAH
+User disconnected: rtItHQLerMzd8nfeAAAB
+A user connected: ZhYsx0L5RH68KVYnAAAD
+User disconnected: ZhYsx0L5RH68KVYnAAAD
+A user connected: K9BU96WO9A3TnXR5AAAF
+Room hostroom_test_3 created by K9BU96WO9A3TnXR5AAAF
+Token spawned in room hostroom_test_3: {
+  id: 'inst_6a0oyxfsg',
+  templateId: 'char_od687myjc',
+  x: 350,
+  y: 300,
+  color: 16711680,
+  speed: 5,
+  avatarUrl: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Paladin',
+  type: 'character',
+  hasMoved: false
+}
+User disconnected: K9BU96WO9A3TnXR5AAAF

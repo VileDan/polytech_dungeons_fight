@@ -57,6 +57,39 @@ const GRID_SIZE = 50;
 let ROWS = 15;
 let COLS = 20;
 
+
+// --- Authentication ---
+let currentUser: { id: string, name: string } | null = null;
+const loginScreen = document.getElementById('login-screen')!;
+const usernameInput = document.getElementById('username-input') as HTMLInputElement;
+const loginBtn = document.getElementById('login-btn')!;
+
+function checkAuth() {
+    const savedUser = localStorage.getItem('casual_game_user');
+    if (savedUser) {
+        currentUser = JSON.parse(savedUser);
+        loginScreen.classList.add('hidden');
+        document.getElementById('ui-layer')!.classList.remove('hidden');
+        connectSocket();
+    } else {
+        document.getElementById('ui-layer')!.classList.add('hidden');
+    }
+}
+
+loginBtn.addEventListener('click', () => {
+    const name = usernameInput.value.trim();
+    if (name) {
+        currentUser = {
+            id: 'user_' + Math.random().toString(36).substr(2, 9),
+            name: name
+        };
+        localStorage.setItem('casual_game_user', JSON.stringify(currentUser));
+        loginScreen.classList.add('hidden');
+        document.getElementById('ui-layer')!.classList.remove('hidden');
+        connectSocket();
+    }
+});
+
 // UI Elements
 const lobbyMenu = document.getElementById('lobby-menu')!;
 const gameUi = document.getElementById('game-ui')!;
@@ -115,12 +148,10 @@ async function init() {
 
     drawGrid();
 
-    // 2. Initialize Socket.IO
-    socket = io('http://localhost:3000'); // Assuming backend on 3000
-
-    setupSocketListeners();
+    // UI listeners setup only once
     setupUIListeners();
     setupCameraControls();
+    checkAuth();
 
     // Add interaction to stage to handle dropping outside tokens
     app.stage.eventMode = 'static';
@@ -510,16 +541,34 @@ async function createOrUpdateToken(data: any) { // using any locally for isHidde
         // Try loading avatar if exists
         if (data.avatarUrl) {
             try {
-                const texture = await Assets.load(data.avatarUrl);
+                // Pre-load logic for SVGs, especially from dynamic APIs like Dicebear
+                let loadAlias = data.avatarUrl;
+                let loadOptions: any = data.avatarUrl;
+
+                // If it's dicebear or looks like SVG without extension, give Pixi a hint
+                if (data.avatarUrl.includes('dicebear') || data.avatarUrl.includes('svg')) {
+                     loadOptions = {
+                         src: data.avatarUrl,
+                         format: 'svg',
+                         loadParser: 'loadSVG'
+                     };
+                }
+
+                const texture = await Assets.load(loadOptions);
                 sprite = new Sprite(texture);
                 sprite.label = 'avatar';
                 sprite.anchor.set(0.5);
                 sprite.position.set(GRID_SIZE / 2, GRID_SIZE / 2);
 
-                // Scale to fit
                 const size = GRID_SIZE - 8;
-                const scale = Math.max(size / sprite.width, size / sprite.height);
-                sprite.scale.set(scale);
+                // Safe scaling
+                if (sprite.texture.width > 0 && sprite.texture.height > 0) {
+                    const scale = Math.max(size / sprite.texture.width, size / sprite.texture.height);
+                    sprite.scale.set(scale);
+                } else {
+                    sprite.width = size;
+                    sprite.height = size;
+                }
 
                 // Add circular mask
                 const mask = new Graphics();
@@ -529,7 +578,16 @@ async function createOrUpdateToken(data: any) { // using any locally for isHidde
 
                 tokenContainer.addChild(mask);
                 sprite.mask = mask;
-                tokenContainer.addChild(sprite);
+                // Add sprite. But ensure border is above it if it exists.
+                tokenContainer.addChildAt(sprite, 1); // 0 is bg
+                // Also add mask to container (not strictly necessary but keeps hierarchy clean)
+                tokenContainer.addChildAt(mask, 1);
+
+                // If border was already added (since load is async), ensure it stays at top
+                const borderChild = tokenContainer.getChildByLabel('border');
+                if (borderChild) {
+                    tokenContainer.setChildIndex(borderChild, tokenContainer.children.length - 1);
+                }
             } catch (e) {
                 console.warn('Failed to load avatar:', data.avatarUrl);
             }
@@ -586,6 +644,15 @@ async function createOrUpdateToken(data: any) { // using any locally for isHidde
 }
 
 // --- Socket & UI Listeners ---
+
+
+function connectSocket() {
+    if (socket) return;
+    socket = io('http://localhost:3000', {
+        auth: { userId: currentUser!.id, userName: currentUser!.name }
+    });
+    setupSocketListeners();
+}
 
 function setupSocketListeners() {
     socket.on('connect', () => {
@@ -694,17 +761,21 @@ app.canvas.addEventListener?.('contextmenu', (e: any) => {
     if (targetToken) {
         cmTargetTokenId = targetToken.id;
         cmTargetCell = null;
-        document.getElementById('cm-delete')!.style.display = 'block';
-        document.getElementById('cm-copy')!.style.display = 'block';
-        document.getElementById('cm-toggle-visibility')!.style.display = 'block';
-        document.getElementById('cm-paste')!.style.display = 'none';
+        document.getElementById('cm-delete')!.classList.remove('hidden');
+        document.getElementById('cm-copy')!.classList.remove('hidden');
+        document.getElementById('cm-toggle-visibility')!.classList.remove('hidden');
+        document.getElementById('cm-paste')!.classList.add('hidden');
     } else {
         cmTargetTokenId = null;
         cmTargetCell = {x: cgX, y: cgY};
-        document.getElementById('cm-delete')!.style.display = 'none';
-        document.getElementById('cm-copy')!.style.display = 'none';
-        document.getElementById('cm-toggle-visibility')!.style.display = 'none';
-        document.getElementById('cm-paste')!.style.display = copiedTokenId ? 'block' : 'none';
+        document.getElementById('cm-delete')!.classList.add('hidden');
+        document.getElementById('cm-copy')!.classList.add('hidden');
+        document.getElementById('cm-toggle-visibility')!.classList.add('hidden');
+        if (copiedTokenId) {
+            document.getElementById('cm-paste')!.classList.remove('hidden');
+        } else {
+            document.getElementById('cm-paste')!.classList.add('hidden');
+        }
     }
 });
 
