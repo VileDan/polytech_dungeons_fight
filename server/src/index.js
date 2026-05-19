@@ -25,7 +25,9 @@ io.on('connection', (socket) => {
   socket.on('create_room', (roomId) => {
     if (!rooms[roomId]) {
       rooms[roomId] = {
+        host: socket.id,
         players: [socket.id],
+        map: { cols: 20, rows: 15 },
         tokens: [],
         characters: [],
         props: [
@@ -36,7 +38,7 @@ io.on('connection', (socket) => {
         ]
       };
       socket.join(roomId);
-      socket.emit('room_created', roomId);
+      socket.emit('room_created', roomId, true); // true = isHost
       console.log(`Room ${roomId} created by ${socket.id}`);
     } else {
       socket.emit('error', 'Room already exists');
@@ -47,7 +49,9 @@ io.on('connection', (socket) => {
     if (rooms[roomId]) {
       rooms[roomId].players.push(socket.id);
       socket.join(roomId);
-      socket.emit('room_joined', roomId, rooms[roomId]);
+      // Pass flag if joining player is host
+      const state = { ...rooms[roomId], isHost: rooms[roomId].host === socket.id };
+      socket.emit('room_joined', roomId, state);
       socket.to(roomId).emit('player_joined', socket.id);
       console.log(`User ${socket.id} joined room ${roomId}`);
     } else {
@@ -87,6 +91,41 @@ io.on('connection', (socket) => {
     if (rooms[roomId]) {
       rooms[roomId].characters = rooms[roomId].characters.filter(c => c.id !== characterId);
       io.to(roomId).emit('character_deleted', characterId);
+    }
+  });
+
+
+  socket.on('update_map', (roomId, mapData) => {
+    if (rooms[roomId] && rooms[roomId].host === socket.id) {
+      rooms[roomId].map = mapData;
+      io.to(roomId).emit('map_updated', mapData);
+    }
+  });
+
+  socket.on('update_character', (roomId, characterData) => {
+    if (rooms[roomId]) {
+      const idx = rooms[roomId].characters.findIndex(c => c.id === characterData.id);
+      if (idx !== -1) {
+        rooms[roomId].characters[idx] = characterData;
+        io.to(roomId).emit('character_updated', characterData);
+      }
+    }
+  });
+
+  socket.on('delete_token', (roomId, tokenId) => {
+    if (rooms[roomId] && rooms[roomId].host === socket.id) {
+      rooms[roomId].tokens = rooms[roomId].tokens.filter(t => t.id !== tokenId);
+      io.to(roomId).emit('token_deleted', tokenId);
+    }
+  });
+
+  socket.on('update_token', (roomId, tokenData) => {
+    if (rooms[roomId] && rooms[roomId].host === socket.id) {
+      const idx = rooms[roomId].tokens.findIndex(t => t.id === tokenData.id);
+      if (idx !== -1) {
+        rooms[roomId].tokens[idx] = { ...rooms[roomId].tokens[idx], ...tokenData };
+        io.to(roomId).emit('token_updated', rooms[roomId].tokens[idx]);
+      }
     }
   });
 

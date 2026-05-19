@@ -38,6 +38,7 @@
             <div class="tabs">
               <button class="tab-btn active" data-target="characters-tab" title="Characters">👥</button>
               <button class="tab-btn" data-target="props-tab" title="Props">📦</button>
+              <button class="tab-btn" data-target="map-tab" title="Map Settings" id="map-tab-btn" style="display:none;">🗺️</button>
             </div>
 
             <div id="characters-tab" class="tab-content active">
@@ -46,24 +47,7 @@
                   <!-- Character templates will be rendered here -->
               </div>
 
-              <div class="form-container">
-                <h4>Create New Character</h4>
-                <div class="input-group">
-                  <input type="text" id="char-name" placeholder="Name" />
-                </div>
-                <div class="input-group">
-                    <label for="char-speed">Speed:</label>
-                  <input type="number" id="char-speed" placeholder="Speed" value="3" min="1" max="10" />
-                </div>
-                <div class="input-group">
-                  <input type="text" id="char-url" placeholder="Avatar URL (Optional)" />
-                </div>
-                <div class="input-group">
-                    <label for="char-color">Color:</label>
-                    <input type="color" id="char-color" value="#ff0000" />
-                </div>
-                <button id="create-char-btn" class="btn primary full-width">Create Character</button>
-              </div>
+              <button id="open-create-char-modal-btn" class="btn primary full-width">Create New Character</button>
             </div>
 
             <div id="props-tab" class="tab-content">
@@ -72,13 +56,61 @@
                   <!-- Props will be rendered here -->
               </div>
             </div>
+
+            <div id="map-tab" class="tab-content">
+              <h3>Map Settings</h3>
+              <div class="input-group">
+                  <label for="map-cols">Columns:</label>
+                  <input type="number" id="map-cols" value="20" min="5" max="100" />
+              </div>
+              <div class="input-group">
+                  <label for="map-rows">Rows:</label>
+                  <input type="number" id="map-rows" value="15" min="5" max="100" />
+              </div>
+              <button id="update-map-btn" class="btn primary full-width">Update Map</button>
+            </div>
           </div>
         </div>
       </div>
 
       <!-- PixiJS Container -->
       <div id="game-container"></div>
-    </div>
+
+      <!-- Character Modal -->
+      <div id="character-modal" class="modal hidden">
+        <div class="modal-content panel">
+            <h3 id="char-modal-title">Create Character</h3>
+            <input type="hidden" id="char-id" />
+            <div class="input-group">
+              <input type="text" id="char-name" placeholder="Name" />
+            </div>
+            <div class="input-group">
+                <label for="char-speed">Speed:</label>
+              <input type="number" id="char-speed" placeholder="Speed" value="3" min="1" max="10" />
+            </div>
+            <div class="input-group">
+              <input type="text" id="char-url" placeholder="Avatar URL (Optional)" />
+            </div>
+            <div class="input-group">
+                <label for="char-color">Color:</label>
+                <input type="color" id="char-color" value="#ff0000" />
+            </div>
+            <div class="button-group" style="flex-direction: row; justify-content: space-between; margin-top: 1rem;">
+              <button id="save-char-btn" class="btn primary">Save</button>
+              <button id="close-char-modal-btn" class="btn secondary">Cancel</button>
+            </div>
+        </div>
+      </div>
+
+      <!-- Context Menu -->
+      <div id="context-menu" class="context-menu hidden">
+          <button id="cm-delete" class="cm-btn">Delete</button>
+          <button id="cm-copy" class="cm-btn">Copy</button>
+          <button id="cm-paste" class="cm-btn hidden">Paste</button>
+          <button id="cm-toggle-visibility" class="cm-btn">Toggle Visibility</button>
+      </div>
+
+      </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

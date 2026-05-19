@@ -308,3 +308,47 @@ input[type="color"] {
     border-radius: 8px;
     cursor: pointer;
 }
+
+/* Modals and Context Menu */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    pointer-events: auto;
+}
+
+.modal-content {
+    min-width: 300px;
+}
+
+.context-menu {
+    position: absolute;
+    background: white;
+    border: 1px solid #ccc;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+    z-index: 1000;
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    min-width: 150px;
+}
+
+.cm-btn {
+    padding: 10px;
+    border: none;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.cm-btn:hover {
+    background: #f0f0f0;
+}

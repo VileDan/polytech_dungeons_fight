@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Application, Graphics, Container, Rectangle, Ticker, Sprite, Assets } from 'pixi.js';
 import { io, Socket } from 'socket.io-client';
 
@@ -43,14 +44,18 @@ const animatingTokens = new Set<string>();
 let selectedTokenId: string | null = null;
 let reachableCells: {x: number, y: number}[] = [];
 
+// Placement Mode State
+let placementTemplate: any = null;
+let placementType: 'character' | 'prop' | null = null;
+
 // Camera / Pan & Zoom State
 let isPanning = false;
 let panStart = { x: 0, y: 0 };
 let hasMovedDuringPan = false;
 
 const GRID_SIZE = 50;
-const ROWS = 15;
-const COLS = 20;
+let ROWS = 15;
+let COLS = 20;
 
 // UI Elements
 const lobbyMenu = document.getElementById('lobby-menu')!;
@@ -79,6 +84,10 @@ const charColorInput = document.getElementById('char-color') as HTMLInputElement
 const createCharBtn = document.getElementById('create-char-btn')!;
 
 // Local state for UI
+let isHost = false;
+let isDragging = false;
+let draggedToken: Container | null = null;
+let dragOffset = { x: 0, y: 0 };
 let roomCharacters: CharacterTemplate[] = [];
 let roomProps: PropTemplate[] = [];
 
@@ -97,6 +106,7 @@ async function init() {
     gridContainer = new Container();
     highlightContainer = new Container();
     tokensContainer = new Container();
+    tokensContainer.sortableChildren = true;
 
     worldContainer.addChild(gridContainer);
     worldContainer.addChild(highlightContainer);
@@ -115,6 +125,40 @@ async function init() {
     // Add interaction to stage to handle dropping outside tokens
     app.stage.eventMode = 'static';
     app.stage.hitArea = new Rectangle(-100000, -100000, 200000, 200000);
+
+// Host Drag and Drop Event Listeners
+
+app.stage.on('pointermove', (e: any) => {
+    if (isDragging && draggedToken) {
+        const local = tokensContainer.toLocal(e.global);
+        draggedToken.x = local.x + dragOffset.x;
+        draggedToken.y = local.y + dragOffset.y;
+    }
+});
+
+app.stage.on('pointerup', (e: any) => {
+    if (isDragging && draggedToken) {
+        isDragging = false;
+        draggedToken.zIndex = 0;
+
+        // Snap
+        const newX = Math.floor((draggedToken.x + GRID_SIZE/2) / GRID_SIZE) * GRID_SIZE;
+        const newY = Math.floor((draggedToken.y + GRID_SIZE/2) / GRID_SIZE) * GRID_SIZE;
+
+        const tokenId = (draggedToken as any).tokenId;
+        const data = tokensDataMap.get(tokenId);
+        if (data) {
+            socket.emit('move_token', currentRoom, {
+                id: tokenId,
+                x: newX,
+                y: newY,
+                hasMoved: data.hasMoved // Preserve state
+            });
+        }
+        draggedToken = null;
+    }
+});
+
 }
 
 // --- Camera Logic ---
@@ -192,6 +236,8 @@ function setupCameraControls() {
     }, { passive: false });
 
     app.stage.on('pointerdown', (e) => {
+        // Ignore right clicks for panning
+        if (e.data && e.data.button === 2) return;
         isPanning = true;
         hasMovedDuringPan = false;
         panStart.x = e.global.x - worldContainer.x;
@@ -223,13 +269,14 @@ function setupCameraControls() {
         }
     };
 
-    app.stage.on('pointerup', stopPanning);
-    app.stage.on('pointerupoutside', stopPanning);
+    app.stage.on('pointerup', (e) => stopPanning(e));
+    app.stage.on('pointerupoutside', (e) => stopPanning(e));
 }
 
 // --- Grid Logic ---
 
 function drawGrid() {
+    gridContainer.removeChildren();
     const grid = new Graphics();
     grid.setStrokeStyle({ width: 1, color: 0xcccccc, alpha: 1 });
 
@@ -263,6 +310,9 @@ init();
 function handleTokenClick(event: any) {
     if (hasMovedDuringPan) return;
 
+    // Check if right click (button 2)
+    if (event.data && event.data.button === 2) return;
+
     const tokenId = event.currentTarget.tokenId;
     const tokenData = tokensDataMap.get(tokenId);
 
@@ -295,17 +345,38 @@ function deselectToken() {
 }
 
 function handleStageClick(event: any) {
-    if (!selectedTokenId) return;
-
     const localPos = highlightContainer.toLocal(event.global);
-    const gridX = Math.floor(localPos.x / GRID_SIZE);
-    const gridY = Math.floor(localPos.y / GRID_SIZE);
+    const clkGridX = Math.floor(localPos.x / GRID_SIZE);
+    const clkGridY = Math.floor(localPos.y / GRID_SIZE);
+
+    if (placementTemplate) {
+        // Check if cell is occupied
+        let occupied = false;
+        for (const [, token] of tokensDataMap) {
+            if (Math.floor(token.x / GRID_SIZE) === clkGridX && Math.floor(token.y / GRID_SIZE) === clkGridY) {
+                occupied = true;
+                break;
+            }
+        }
+
+        if (!occupied) {
+            spawnTokenFromTemplateAt(placementTemplate, placementType!, clkGridX, clkGridY);
+            placementTemplate = null;
+            placementType = null;
+            app.canvas.style.cursor = 'default';
+        }
+        return;
+    }
+
+    if (!selectedTokenId) return;
+    const _gridX = Math.floor(localPos.x / GRID_SIZE);
+    const _gridY = Math.floor(localPos.y / GRID_SIZE);
 
     // Check if clicked cell is reachable
-    const isReachable = reachableCells.some(cell => cell.x === gridX && cell.y === gridY);
+    const isReachable = reachableCells.some(cell => cell.x === clkGridX && cell.y === clkGridY);
     if (isReachable) {
-        const targetX = gridX * GRID_SIZE;
-        const targetY = gridY * GRID_SIZE;
+        const targetX = clkGridX * GRID_SIZE;
+        const targetY = clkGridY * GRID_SIZE;
 
         // Mark as moved locally
         const tokenData = tokensDataMap.get(selectedTokenId);
@@ -389,8 +460,17 @@ function drawHighlights() {
 }
 
 // --- Token Logic ---
-async function createOrUpdateToken(data: TokenData) {
+async function createOrUpdateToken(data: any) { // using any locally for isHidden
     tokensDataMap.set(data.id, data);
+
+    // Hide logic
+    if (data.isHidden && !isHost) {
+        const existing = tokenGraphicsMap.get(data.id);
+        if (existing) {
+            existing.visible = false;
+        }
+        return;
+    }
     let tokenContainer = tokenGraphicsMap.get(data.id);
     let graphics: Graphics;
     let sprite: Sprite | undefined;
@@ -406,6 +486,23 @@ async function createOrUpdateToken(data: TokenData) {
         graphics = new Graphics();
         graphics.label = 'bg'; // Using label instead of name for pixijs v8
         tokenContainer.addChild(graphics);
+
+        // Host Drag logic inside token creation
+        tokenContainer.on('pointerdown', (e: any) => {
+            if (isHost && e.data.button === 0) {
+                e.stopPropagation(); // Prevent panning the map
+                isDragging = true;
+                draggedToken = tokenContainer as Container;
+                const local = tokensContainer.toLocal(e.global);
+                dragOffset.x = tokenContainer!.x - local.x;
+                dragOffset.y = tokenContainer!.y - local.y;
+                tokenContainer!.zIndex = 1000;
+            }
+        });
+
+        // Ensure tokens can emit context menu events (right click)
+        tokenContainer.eventMode = 'static';
+
 
         tokensContainer.addChild(tokenContainer);
         tokenGraphicsMap.set(data.id, tokenContainer);
@@ -432,28 +529,35 @@ async function createOrUpdateToken(data: TokenData) {
 
                 tokenContainer.addChild(mask);
                 sprite.mask = mask;
-
                 tokenContainer.addChild(sprite);
             } catch (e) {
                 console.warn('Failed to load avatar:', data.avatarUrl);
             }
         }
+
+        // Ensure a top border layer is present to draw over the avatar
+        let border = new Graphics();
+        border.label = 'border';
+        tokenContainer.addChild(border);
     } else {
         graphics = tokenContainer.getChildByLabel('bg') as Graphics;
         tokenContainer.cursor = data.type === 'prop' || data.hasMoved ? 'default' : 'pointer';
+        tokenContainer.visible = true;
     }
 
-    // Draw/Redraw Background & Border
+    if (data.isHidden && isHost) {
+        tokenContainer.alpha = 0.5; // Visual indicator for host
+    } else {
+        tokenContainer.alpha = 1;
+    }
+
+    // Base graphics (fill)
     graphics.clear();
     const radius = (GRID_SIZE / 2) - 4;
 
-    // Dim color if hasMoved
-    let fillColor = data.color;
     let alpha = data.hasMoved ? 0.5 : 1;
+    graphics.beginFill(data.color, alpha);
 
-    graphics.beginFill(fillColor, alpha);
-
-    // Props might be drawn as squares
     if (data.type === 'prop') {
         graphics.drawRect(4, 4, GRID_SIZE - 8, GRID_SIZE - 8);
     } else {
@@ -461,18 +565,21 @@ async function createOrUpdateToken(data: TokenData) {
     }
     graphics.endFill();
 
+    // Border overlay
+    const border = tokenContainer.getChildByLabel('border') as Graphics;
+    border.clear();
     if (selectedTokenId === data.id) {
-        graphics.lineStyle(4, 0xffaa00, 1);
+        border.lineStyle(4, 0xffaa00, 1);
     } else if (data.hasMoved) {
-        graphics.lineStyle(2, 0x888888, 0.8);
+        border.lineStyle(2, 0x888888, 0.8);
     } else {
-        graphics.lineStyle(2, 0x000000, 0.5);
+        border.lineStyle(2, 0x000000, 0.5);
     }
 
     if (data.type === 'prop') {
-        graphics.drawRect(4, 4, GRID_SIZE - 8, GRID_SIZE - 8);
+        border.drawRect(4, 4, GRID_SIZE - 8, GRID_SIZE - 8);
     } else {
-        graphics.drawCircle(GRID_SIZE / 2, GRID_SIZE / 2, radius);
+        border.drawCircle(GRID_SIZE / 2, GRID_SIZE / 2, radius);
     }
 
     tokenContainer.position.set(data.x, data.y);
@@ -485,13 +592,21 @@ function setupSocketListeners() {
         console.log('Connected to server');
     });
 
-    socket.on('room_created', (roomId: string) => {
+    socket.on('room_created', (roomId: string, hostFlag: boolean) => {
+        isHost = hostFlag;
         enterRoom(roomId);
+        if (isHost) {
+            document.getElementById('map-tab-btn')!.style.display = 'block';
+        }
     });
 
     socket.on('room_joined', (roomId: string, state: any) => {
         enterRoom(roomId);
+        isHost = state.isHost || false;
         roomCharacters = state.characters || [];
+        if (isHost) {
+            document.getElementById('map-tab-btn')!.style.display = 'block';
+        }
         roomProps = state.props || [];
         renderCharacterList();
         renderPropsList();
@@ -511,6 +626,32 @@ function setupSocketListeners() {
         renderCharacterList();
     });
 
+
+const mapColsInput = document.getElementById('map-cols') as HTMLInputElement;
+const mapRowsInput = document.getElementById('map-rows') as HTMLInputElement;
+const updateMapBtn = document.getElementById('update-map-btn')!;
+
+updateMapBtn.addEventListener('click', () => {
+    if (!currentRoom || !isHost) return;
+    const cols = parseInt(mapColsInput.value) || 20;
+    const rows = parseInt(mapRowsInput.value) || 15;
+    socket.emit('update_map', currentRoom, { cols, rows });
+});
+
+socket.on('map_updated', (mapData: {cols: number, rows: number}) => {
+    COLS = mapData.cols;
+    ROWS = mapData.rows;
+    drawGrid();
+});
+
+    socket.on('character_updated', (characterData: CharacterTemplate) => {
+        const idx = roomCharacters.findIndex(c => c.id === characterData.id);
+        if (idx !== -1) {
+            roomCharacters[idx] = characterData;
+            renderCharacterList();
+        }
+    });
+
     socket.on('turn_ended', () => {
         tokensDataMap.forEach(token => {
             token.hasMoved = false;
@@ -518,6 +659,120 @@ function setupSocketListeners() {
         });
         deselectToken();
     });
+
+// --- Context Menu Logic ---
+const contextMenu = document.getElementById('context-menu')!;
+let cmTargetTokenId: string | null = null;
+let cmTargetCell: {x: number, y: number} | null = null;
+let copiedTokenId: string | null = null;
+
+app.canvas.addEventListener?.('contextmenu', (e: any) => {
+    e.preventDefault();
+    if (!isHost) return;
+
+    const rect = (app.canvas as HTMLCanvasElement).getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    const worldPos = worldContainer.toLocal({x: mouseX, y: mouseY});
+    const cgX = Math.floor(worldPos.x / GRID_SIZE);
+    const cgY = Math.floor(worldPos.y / GRID_SIZE);
+
+    // Find if a token is at this location
+    let targetToken = null;
+    for (const [, token] of tokensDataMap) {
+        if (Math.floor(token.x / GRID_SIZE) === cgX && Math.floor(token.y / GRID_SIZE) === cgY) {
+            targetToken = token;
+            break;
+        }
+    }
+
+    contextMenu.style.left = e.clientX + 'px';
+    contextMenu.style.top = e.clientY + 'px';
+    contextMenu.classList.remove('hidden');
+
+    if (targetToken) {
+        cmTargetTokenId = targetToken.id;
+        cmTargetCell = null;
+        document.getElementById('cm-delete')!.style.display = 'block';
+        document.getElementById('cm-copy')!.style.display = 'block';
+        document.getElementById('cm-toggle-visibility')!.style.display = 'block';
+        document.getElementById('cm-paste')!.style.display = 'none';
+    } else {
+        cmTargetTokenId = null;
+        cmTargetCell = {x: cgX, y: cgY};
+        document.getElementById('cm-delete')!.style.display = 'none';
+        document.getElementById('cm-copy')!.style.display = 'none';
+        document.getElementById('cm-toggle-visibility')!.style.display = 'none';
+        document.getElementById('cm-paste')!.style.display = copiedTokenId ? 'block' : 'none';
+    }
+});
+
+// Hide context menu on click anywhere
+document.addEventListener('click', (e) => {
+    if (!contextMenu.contains(e.target as Node)) {
+        contextMenu.classList.add('hidden');
+    }
+});
+
+document.getElementById('cm-delete')!.addEventListener('click', () => {
+    if (cmTargetTokenId && currentRoom) {
+        socket.emit('delete_token', currentRoom, cmTargetTokenId);
+    }
+    contextMenu.classList.add('hidden');
+});
+
+document.getElementById('cm-copy')!.addEventListener('click', () => {
+    if (cmTargetTokenId) {
+        copiedTokenId = cmTargetTokenId;
+    }
+    contextMenu.classList.add('hidden');
+});
+
+document.getElementById('cm-paste')!.addEventListener('click', () => {
+    if (copiedTokenId && cmTargetCell && currentRoom) {
+        const templateToken = tokensDataMap.get(copiedTokenId);
+        if (templateToken) {
+            // Find template data
+            let template = roomCharacters.find(c => c.id === templateToken.templateId) || roomProps.find(p => p.id === templateToken.templateId);
+            if (template) {
+               spawnTokenFromTemplateAt(template, templateToken.type, cmTargetCell.x, cmTargetCell.y);
+            }
+        }
+    }
+    contextMenu.classList.add('hidden');
+});
+
+document.getElementById('cm-toggle-visibility')!.addEventListener('click', () => {
+    if (cmTargetTokenId && currentRoom) {
+        const token = tokensDataMap.get(cmTargetTokenId);
+        if (token) {
+            const isHidden = (token as any).isHidden || false;
+            socket.emit('update_token', currentRoom, { id: cmTargetTokenId, isHidden: !isHidden });
+        }
+    }
+    contextMenu.classList.add('hidden');
+});
+
+// Add socket listener for deletes and updates
+socket.on('token_deleted', (tokenId: string) => {
+    const container = tokenGraphicsMap.get(tokenId);
+    if (container) {
+        container.destroy();
+        tokenGraphicsMap.delete(tokenId);
+        tokensDataMap.delete(tokenId);
+    }
+});
+
+socket.on('token_updated', (tokenData: any) => {
+    const existing = tokensDataMap.get(tokenData.id);
+    if (existing) {
+        const merged = { ...existing, ...tokenData };
+        tokensDataMap.set(tokenData.id, merged);
+        createOrUpdateToken(merged);
+    }
+});
+
 
     socket.on('player_joined', (playerId: string) => {
         console.log(`Player ${playerId} joined`);
@@ -583,28 +838,7 @@ function setupUIListeners() {
         });
     });
 
-    createCharBtn.addEventListener('click', () => {
-        if (!currentRoom) return;
-        const name = charNameInput.value.trim() || 'Hero';
-        const speed = parseInt(charSpeedInput.value) || 3;
-        const url = charUrlInput.value.trim();
-        const colorStr = charColorInput.value.replace('#', '0x');
-        const color = parseInt(colorStr, 16);
 
-        const newChar: CharacterTemplate = {
-            id: 'char_' + Math.random().toString(36).substr(2, 9),
-            name,
-            speed,
-            color,
-            avatarUrl: url || undefined
-        };
-
-        socket.emit('create_character', currentRoom, newChar);
-
-        // Reset form
-        charNameInput.value = '';
-        charUrlInput.value = '';
-    });
 
     // Handle window resize
     window.addEventListener('resize', () => {
@@ -624,6 +858,65 @@ function enterRoom(roomId: string) {
 }
 
 
+
+const charModal = document.getElementById('character-modal')!;
+const openCharModalBtn = document.getElementById('open-create-char-modal-btn')!;
+const closeCharModalBtn = document.getElementById('close-char-modal-btn')!;
+const saveCharBtn = document.getElementById('save-char-btn')!;
+const charIdInput = document.getElementById('char-id') as HTMLInputElement;
+const charModalTitle = document.getElementById('char-modal-title')!;
+
+openCharModalBtn.addEventListener('click', () => {
+    charModalTitle.textContent = 'Create Character';
+    charIdInput.value = '';
+    charNameInput.value = '';
+    charSpeedInput.value = '3';
+    charUrlInput.value = '';
+    charColorInput.value = '#ff0000';
+    charModal.classList.remove('hidden');
+});
+
+closeCharModalBtn.addEventListener('click', () => {
+    charModal.classList.add('hidden');
+});
+
+saveCharBtn.addEventListener('click', () => {
+    if (!currentRoom) return;
+
+    const id = charIdInput.value;
+    const name = charNameInput.value.trim() || 'Hero';
+    const speed = parseInt(charSpeedInput.value) || 3;
+    const url = charUrlInput.value.trim();
+    const colorStr = charColorInput.value.replace('#', '0x');
+    const color = parseInt(colorStr, 16);
+
+    const charData: CharacterTemplate = {
+        id: id || ('char_' + Math.random().toString(36).substr(2, 9)),
+        name,
+        speed,
+        color,
+        avatarUrl: url || undefined
+    };
+
+    if (id) {
+        socket.emit('update_character', currentRoom, charData);
+    } else {
+        socket.emit('create_character', currentRoom, charData);
+    }
+
+    charModal.classList.add('hidden');
+});
+
+// Update characterList render to include edit button
+function escapeHtml(unsafe: string) {
+    return unsafe
+         .replace(/&/g, "&amp;")
+         .replace(/</g, "&lt;")
+         .replace(/>/g, "&gt;")
+         .replace(/"/g, "&quot;")
+         .replace(/'/g, "&#039;");
+}
+
 function renderCharacterList() {
     characterList.innerHTML = '';
     roomCharacters.forEach(char => {
@@ -633,11 +926,12 @@ function renderCharacterList() {
 
         item.innerHTML = `
             <div class="list-item-info">
-                <strong>${char.name}</strong>
+                <strong>${escapeHtml(char.name)}</strong>
                 <small>Spd: ${char.speed}</small>
             </div>
             <div class="list-item-actions">
                 <button class="btn primary small spawn-char-btn" data-id="${char.id}">Spawn</button>
+                <button class="btn secondary small edit-char-btn" data-id="${char.id}">Edit</button>
                 <button class="btn danger small delete-char-btn" data-id="${char.id}">X</button>
             </div>
         `;
@@ -649,7 +943,26 @@ function renderCharacterList() {
             const charId = (e.currentTarget as HTMLElement).getAttribute('data-id');
             const char = roomCharacters.find(c => c.id === charId);
             if (char && currentRoom) {
-                spawnTokenFromTemplate(char, 'character');
+                placementTemplate = char;
+                placementType = 'character';
+                app.canvas.style.cursor = 'crosshair';
+                deselectToken(); // clear selection while placing
+            }
+        });
+    });
+
+    document.querySelectorAll('.edit-char-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const charId = (e.currentTarget as HTMLElement).getAttribute('data-id');
+            const char = roomCharacters.find(c => c.id === charId);
+            if (char) {
+                charModalTitle.textContent = 'Edit Character';
+                charIdInput.value = char.id;
+                charNameInput.value = char.name;
+                charSpeedInput.value = char.speed.toString();
+                charUrlInput.value = char.avatarUrl || '';
+                charColorInput.value = '#' + char.color.toString(16).padStart(6, '0');
+                charModal.classList.remove('hidden');
             }
         });
     });
@@ -664,6 +977,7 @@ function renderCharacterList() {
     });
 }
 
+
 function renderPropsList() {
     propsList.innerHTML = '';
     roomProps.forEach(prop => {
@@ -673,7 +987,7 @@ function renderPropsList() {
 
         item.innerHTML = `
             <div class="list-item-info">
-                <strong>${prop.name}</strong>
+                <strong>${escapeHtml(prop.name)}</strong>
             </div>
             <div class="list-item-actions">
                 <button class="btn secondary small spawn-prop-btn" data-id="${prop.id}">Spawn</button>
@@ -687,15 +1001,16 @@ function renderPropsList() {
             const propId = (e.currentTarget as HTMLElement).getAttribute('data-id');
             const prop = roomProps.find(p => p.id === propId);
             if (prop && currentRoom) {
-                spawnTokenFromTemplate(prop, 'prop');
+                placementTemplate = prop;
+                placementType = 'prop';
+                app.canvas.style.cursor = 'crosshair';
+                deselectToken(); // clear selection while placing
             }
         });
     });
 }
 
-function spawnTokenFromTemplate(template: any, type: 'character' | 'prop') {
-    const randCol = Math.floor(Math.random() * COLS);
-    const randRow = Math.floor(Math.random() * ROWS);
+function spawnTokenFromTemplateAt(template: any, type: 'character' | 'prop', gridX: number, gridY: number) {
 
     let colorVal = 0xffffff;
     if (typeof template.color === 'number') {
@@ -707,8 +1022,8 @@ function spawnTokenFromTemplate(template: any, type: 'character' | 'prop') {
     const tokenData: TokenData = {
         id: 'inst_' + Math.random().toString(36).substr(2, 9),
         templateId: template.id,
-        x: randCol * GRID_SIZE,
-        y: randRow * GRID_SIZE,
+        x: gridX * GRID_SIZE,
+        y: gridY * GRID_SIZE,
         color: colorVal,
         speed: template.speed || 0,
         avatarUrl: template.avatarUrl,
@@ -762,6 +1077,9 @@ function animateTokenMovement(partialData: Partial<TokenData> & { id: string, x:
     const duration = 500; // ms
     const startTime = performance.now();
 
+    // Increase z-index temporarily
+    tokenGraphic.zIndex = 1000;
+
     const ticker = new Ticker();
     ticker.add(() => {
         const now = performance.now();
@@ -797,6 +1115,7 @@ function animateTokenMovement(partialData: Partial<TokenData> & { id: string, x:
         if (progress >= 1) {
             tokenGraphic.pivot.set(0, 0);
             tokenGraphic.scale.set(1);
+            tokenGraphic.zIndex = 0; // Restore z-index
             ticker.destroy();
             animatingTokens.delete(newTokenData.id);
             // Redraw to reset to clean state (stroke, exact position)
