@@ -1,0 +1,43 @@
+<<<<<<< SEARCH
+        <!-- Game Menu (Hidden by default) -->
+        <div id="game-ui" class="hidden">
+          <div class="top-bar">
+            <span id="current-room-display">Room: None</span>
+            <button id="leave-room-btn" class="btn danger small">Leave</button>
+          </div>
+
+          <div id="spawn-menu" class="panel floating-panel">
+            <h3>Spawn Token</h3>
+            <div class="spawn-options">
+              <button class="spawn-btn" data-color="0xff0000" style="background-color: red;"></button>
+              <button class="spawn-btn" data-color="0x00ff00" style="background-color: green;"></button>
+              <button class="spawn-btn" data-color="0x0000ff" style="background-color: blue;"></button>
+              <button class="spawn-btn" data-color="0xffff00" style="background-color: yellow;"></button>
+            </div>
+            <p class="hint">Click a color to spawn a token at a random spot.</p>
+          </div>
+        </div>
+=======
+        <!-- Game Menu (Hidden by default) -->
+        <div id="game-ui" class="hidden">
+          <div class="top-bar">
+            <span id="current-room-display">Room: None</span>
+            <button id="leave-room-btn" class="btn danger small">Leave</button>
+          </div>
+
+          <div id="spawn-menu" class="panel floating-panel">
+            <h3>Create Character</h3>
+            <div class="input-group">
+                <label for="char-speed">Speed (cells):</label>
+                <input type="number" id="char-speed" value="3" min="1" max="10" />
+            </div>
+            <div class="spawn-options">
+              <button class="spawn-btn" data-color="0xff0000" style="background-color: red;"></button>
+              <button class="spawn-btn" data-color="0x00ff00" style="background-color: green;"></button>
+              <button class="spawn-btn" data-color="0x0000ff" style="background-color: blue;"></button>
+              <button class="spawn-btn" data-color="0xffff00" style="background-color: yellow;"></button>
+            </div>
+            <p class="hint">Select a color to spawn a character.</p>
+          </div>
+        </div>
+>>>>>>> REPLACE
