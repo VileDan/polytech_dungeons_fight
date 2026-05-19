@@ -1,28 +1,23 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Casual Board Game</title>
-    <link rel="stylesheet" href="/src/style.css">
-  </head>
-  <body>
-    <div id="app">
-      <!-- UI Layer -->
-      <div id="ui-layer">
-        <!-- Lobby Menu -->
-        <div id="lobby-menu" class="panel">
-          <h1>Casual Board Game</h1>
-          <div class="input-group">
-            <input type="text" id="room-id-input" placeholder="Enter Room ID" />
+<<<<<<< SEARCH
+        <!-- Game Menu (Hidden by default) -->
+        <div id="game-ui" class="hidden">
+          <div class="top-bar">
+            <span id="current-room-display">Room: None</span>
+            <button id="leave-room-btn" class="btn danger small">Leave</button>
           </div>
-          <div class="button-group">
-            <button id="create-room-btn" class="btn primary">Create Room</button>
-            <button id="join-room-btn" class="btn secondary">Join Room</button>
-          </div>
-          <p id="lobby-error" class="error-msg"></p>
-        </div>
 
+          <div id="spawn-menu" class="panel floating-panel">
+            <h3>Spawn Token</h3>
+            <div class="spawn-options">
+              <button class="spawn-btn" data-color="0xff0000" style="background-color: red;"></button>
+              <button class="spawn-btn" data-color="0x00ff00" style="background-color: green;"></button>
+              <button class="spawn-btn" data-color="0x0000ff" style="background-color: blue;"></button>
+              <button class="spawn-btn" data-color="0xffff00" style="background-color: yellow;"></button>
+            </div>
+            <p class="hint">Click a color to spawn a token at a random spot.</p>
+          </div>
+        </div>
+=======
         <!-- Game Menu (Hidden by default) -->
         <div id="game-ui" class="hidden">
           <div class="top-bar">
@@ -45,11 +40,4 @@
             <p class="hint">Select a color to spawn a character.</p>
           </div>
         </div>
-      </div>
-
-      <!-- PixiJS Container -->
-      <div id="game-container"></div>
-    </div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
-</html>
+>>>>>>> REPLACE

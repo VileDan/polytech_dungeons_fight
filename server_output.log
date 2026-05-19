@@ -1,6 +1,5 @@
 Server listening on port 3000
-A user connected: 0W3ELVQ9-qgAfhiDAAAB
-Room testroom created by 0W3ELVQ9-qgAfhiDAAAB
-Token spawned in room testroom: { id: 'slce5sh3d', x: 50, y: 100, color: 16711680 }
-Token spawned in room testroom: { id: 'npxrnbijp', x: 450, y: 150, color: 65280 }
-User disconnected: 0W3ELVQ9-qgAfhiDAAAB
+A user connected: 04ZbsSNLQqu6XMilAAAB
+Room testroom2 created by 04ZbsSNLQqu6XMilAAAB
+Token spawned in room testroom2: { id: 'chx67bngs', x: 400, y: 400, color: 16711680, speed: 5 }
+User disconnected: 04ZbsSNLQqu6XMilAAAB

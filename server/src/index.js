@@ -62,7 +62,7 @@ io.on('connection', (socket) => {
       if (index !== -1) {
         rooms[roomId].tokens[index].x = tokenData.x;
         rooms[roomId].tokens[index].y = tokenData.y;
-        socket.to(roomId).emit('token_moved', tokenData);
+        io.to(roomId).emit('token_moved', tokenData);
       }
     }
   });
