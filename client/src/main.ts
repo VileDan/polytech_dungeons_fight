@@ -1,13 +1,31 @@
-import { Application, Graphics, Container, Rectangle, Ticker } from 'pixi.js';
+import { Application, Graphics, Container, Rectangle, Ticker, Sprite, Assets } from 'pixi.js';
 import { io, Socket } from 'socket.io-client';
 
 // Types
 interface TokenData {
-    id: string;
+    id: string; // unique instance id
+    templateId: string; // id of character/prop
     x: number;
     y: number;
     color: number;
     speed: number;
+    avatarUrl?: string;
+    type: 'character' | 'prop';
+    hasMoved: boolean;
+}
+
+interface CharacterTemplate {
+    id: string;
+    name: string;
+    speed: number;
+    color: number;
+    avatarUrl?: string;
+}
+
+interface PropTemplate {
+    id: string;
+    name: string;
+    color: string; // Using string for easy css
 }
 
 // Global State
@@ -18,7 +36,7 @@ let worldContainer: Container;
 let gridContainer: Container;
 let highlightContainer: Container;
 let tokensContainer: Container;
-const tokenGraphicsMap = new Map<string, Graphics>();
+const tokenGraphicsMap = new Map<string, Container>();
 const tokensDataMap = new Map<string, TokenData>();
 const animatingTokens = new Set<string>();
 
@@ -41,10 +59,28 @@ const roomInput = document.getElementById('room-id-input') as HTMLInputElement;
 const createRoomBtn = document.getElementById('create-room-btn')!;
 const joinRoomBtn = document.getElementById('join-room-btn')!;
 const leaveRoomBtn = document.getElementById('leave-room-btn')!;
+const endTurnBtn = document.getElementById('end-turn-btn')!;
+const toggleSidePanelBtn = document.getElementById('toggle-side-panel-btn')!;
+const sidePanel = document.getElementById('side-panel')!;
 const currentRoomDisplay = document.getElementById('current-room-display')!;
 const errorMsg = document.getElementById('lobby-error')!;
-const spawnBtns = document.querySelectorAll('.spawn-btn');
-const speedInput = document.getElementById('char-speed') as HTMLInputElement;
+
+// Tab Elements
+const tabBtns = document.querySelectorAll('.tab-btn');
+const tabContents = document.querySelectorAll('.tab-content');
+const characterList = document.getElementById('character-list')!;
+const propsList = document.getElementById('props-list')!;
+
+// Character Form
+const charNameInput = document.getElementById('char-name') as HTMLInputElement;
+const charSpeedInput = document.getElementById('char-speed') as HTMLInputElement;
+const charUrlInput = document.getElementById('char-url') as HTMLInputElement;
+const charColorInput = document.getElementById('char-color') as HTMLInputElement;
+const createCharBtn = document.getElementById('create-char-btn')!;
+
+// Local state for UI
+let roomCharacters: CharacterTemplate[] = [];
+let roomProps: PropTemplate[] = [];
 
 // --- Initialization ---
 
@@ -228,6 +264,11 @@ function handleTokenClick(event: any) {
     if (hasMovedDuringPan) return;
 
     const tokenId = event.currentTarget.tokenId;
+    const tokenData = tokensDataMap.get(tokenId);
+
+    // Prevent selecting tokens that have moved or are props
+    if (!tokenData || tokenData.hasMoved || tokenData.type === 'prop') return;
+
     if (selectedTokenId === tokenId) {
         // Deselect
         deselectToken();
@@ -266,11 +307,16 @@ function handleStageClick(event: any) {
         const targetX = gridX * GRID_SIZE;
         const targetY = gridY * GRID_SIZE;
 
+        // Mark as moved locally
+        const tokenData = tokensDataMap.get(selectedTokenId);
+        if (tokenData) tokenData.hasMoved = true;
+
         // Emit move event immediately. Visuals updated by animation later.
         socket.emit('move_token', currentRoom, {
             id: selectedTokenId,
             x: targetX,
-            y: targetY
+            y: targetY,
+            hasMoved: true
         });
         deselectToken();
     } else {
@@ -343,39 +389,93 @@ function drawHighlights() {
 }
 
 // --- Token Logic ---
-function createOrUpdateToken(data: TokenData) {
+async function createOrUpdateToken(data: TokenData) {
     tokensDataMap.set(data.id, data);
-    let token = tokenGraphicsMap.get(data.id);
+    let tokenContainer = tokenGraphicsMap.get(data.id);
+    let graphics: Graphics;
+    let sprite: Sprite | undefined;
 
-    if (!token) {
-        token = new Graphics();
-        token.eventMode = 'static';
-        token.cursor = 'pointer';
+    if (!tokenContainer) {
+        tokenContainer = new Container();
+        tokenContainer.eventMode = 'static';
+        tokenContainer.cursor = data.type === 'prop' || data.hasMoved ? 'default' : 'pointer';
 
-        token.on('pointerup', handleTokenClick);
+        tokenContainer.on('pointerup', handleTokenClick);
+        (tokenContainer as any).tokenId = data.id;
 
-        // Custom property to store ID
-        (token as any).tokenId = data.id;
+        graphics = new Graphics();
+        graphics.label = 'bg'; // Using label instead of name for pixijs v8
+        tokenContainer.addChild(graphics);
 
-        tokensContainer.addChild(token);
-        tokenGraphicsMap.set(data.id, token);
+        tokensContainer.addChild(tokenContainer);
+        tokenGraphicsMap.set(data.id, tokenContainer);
+
+        // Try loading avatar if exists
+        if (data.avatarUrl) {
+            try {
+                const texture = await Assets.load(data.avatarUrl);
+                sprite = new Sprite(texture);
+                sprite.label = 'avatar';
+                sprite.anchor.set(0.5);
+                sprite.position.set(GRID_SIZE / 2, GRID_SIZE / 2);
+
+                // Scale to fit
+                const size = GRID_SIZE - 8;
+                const scale = Math.max(size / sprite.width, size / sprite.height);
+                sprite.scale.set(scale);
+
+                // Add circular mask
+                const mask = new Graphics();
+                mask.beginFill(0xffffff);
+                mask.drawCircle(GRID_SIZE / 2, GRID_SIZE / 2, size / 2);
+                mask.endFill();
+
+                tokenContainer.addChild(mask);
+                sprite.mask = mask;
+
+                tokenContainer.addChild(sprite);
+            } catch (e) {
+                console.warn('Failed to load avatar:', data.avatarUrl);
+            }
+        }
+    } else {
+        graphics = tokenContainer.getChildByLabel('bg') as Graphics;
+        tokenContainer.cursor = data.type === 'prop' || data.hasMoved ? 'default' : 'pointer';
     }
 
-    // Draw/Redraw
-    token.clear();
-    token.beginFill(data.color);
+    // Draw/Redraw Background & Border
+    graphics.clear();
     const radius = (GRID_SIZE / 2) - 4;
-    token.drawCircle(GRID_SIZE / 2, GRID_SIZE / 2, radius);
-    token.endFill();
+
+    // Dim color if hasMoved
+    let fillColor = data.color;
+    let alpha = data.hasMoved ? 0.5 : 1;
+
+    graphics.beginFill(fillColor, alpha);
+
+    // Props might be drawn as squares
+    if (data.type === 'prop') {
+        graphics.drawRect(4, 4, GRID_SIZE - 8, GRID_SIZE - 8);
+    } else {
+        graphics.drawCircle(GRID_SIZE / 2, GRID_SIZE / 2, radius);
+    }
+    graphics.endFill();
 
     if (selectedTokenId === data.id) {
-        token.lineStyle(4, 0xffaa00, 1);
+        graphics.lineStyle(4, 0xffaa00, 1);
+    } else if (data.hasMoved) {
+        graphics.lineStyle(2, 0x888888, 0.8);
     } else {
-        token.lineStyle(2, 0x000000, 0.5);
+        graphics.lineStyle(2, 0x000000, 0.5);
     }
-    token.drawCircle(GRID_SIZE / 2, GRID_SIZE / 2, radius);
 
-    token.position.set(data.x, data.y);
+    if (data.type === 'prop') {
+        graphics.drawRect(4, 4, GRID_SIZE - 8, GRID_SIZE - 8);
+    } else {
+        graphics.drawCircle(GRID_SIZE / 2, GRID_SIZE / 2, radius);
+    }
+
+    tokenContainer.position.set(data.x, data.y);
 }
 
 // --- Socket & UI Listeners ---
@@ -391,10 +491,32 @@ function setupSocketListeners() {
 
     socket.on('room_joined', (roomId: string, state: any) => {
         enterRoom(roomId);
+        roomCharacters = state.characters || [];
+        roomProps = state.props || [];
+        renderCharacterList();
+        renderPropsList();
         // Sync existing tokens
         state.tokens.forEach((tokenData: TokenData) => {
             createOrUpdateToken(tokenData);
         });
+    });
+
+    socket.on('character_created', (characterData: CharacterTemplate) => {
+        roomCharacters.push(characterData);
+        renderCharacterList();
+    });
+
+    socket.on('character_deleted', (characterId: string) => {
+        roomCharacters = roomCharacters.filter(c => c.id !== characterId);
+        renderCharacterList();
+    });
+
+    socket.on('turn_ended', () => {
+        tokensDataMap.forEach(token => {
+            token.hasMoved = false;
+            createOrUpdateToken(token); // Force redraw
+        });
+        deselectToken();
     });
 
     socket.on('player_joined', (playerId: string) => {
@@ -405,7 +527,7 @@ function setupSocketListeners() {
         createOrUpdateToken(tokenData);
     });
 
-    socket.on('token_moved', (tokenData: TokenData) => {
+    socket.on('token_moved', (tokenData: any) => {
         animateTokenMovement(tokenData);
     });
 
@@ -439,29 +561,49 @@ function setupUIListeners() {
         window.location.reload();
     });
 
-    spawnBtns.forEach(btn => {
+    endTurnBtn.addEventListener('click', () => {
+        if (currentRoom) {
+            socket.emit('end_turn', currentRoom);
+        }
+    });
+
+    toggleSidePanelBtn.addEventListener('click', () => {
+        sidePanel.classList.toggle('collapsed');
+    });
+
+    tabBtns.forEach(btn => {
         btn.addEventListener('click', (e) => {
-            if (!currentRoom) return;
+            const targetId = (e.currentTarget as HTMLElement).getAttribute('data-target');
 
-            const target = e.target as HTMLElement;
-            const colorStr = target.getAttribute('data-color');
-            const color = colorStr ? parseInt(colorStr, 16) : 0xffffff;
-            const speed = parseInt(speedInput.value) || 3;
+            tabBtns.forEach(b => b.classList.remove('active'));
+            (e.currentTarget as HTMLElement).classList.add('active');
 
-            // Random position snapped to grid
-            const randCol = Math.floor(Math.random() * COLS);
-            const randRow = Math.floor(Math.random() * ROWS);
-
-            const tokenData: TokenData = {
-                id: Math.random().toString(36).substr(2, 9),
-                x: randCol * GRID_SIZE,
-                y: randRow * GRID_SIZE,
-                color: color,
-                speed: speed
-            };
-
-            socket.emit('spawn_token', currentRoom, tokenData);
+            tabContents.forEach(tc => tc.classList.remove('active'));
+            document.getElementById(targetId!)?.classList.add('active');
         });
+    });
+
+    createCharBtn.addEventListener('click', () => {
+        if (!currentRoom) return;
+        const name = charNameInput.value.trim() || 'Hero';
+        const speed = parseInt(charSpeedInput.value) || 3;
+        const url = charUrlInput.value.trim();
+        const colorStr = charColorInput.value.replace('#', '0x');
+        const color = parseInt(colorStr, 16);
+
+        const newChar: CharacterTemplate = {
+            id: 'char_' + Math.random().toString(36).substr(2, 9),
+            name,
+            speed,
+            color,
+            avatarUrl: url || undefined
+        };
+
+        socket.emit('create_character', currentRoom, newChar);
+
+        // Reset form
+        charNameInput.value = '';
+        charUrlInput.value = '';
     });
 
     // Handle window resize
@@ -481,16 +623,115 @@ function enterRoom(roomId: string) {
     document.getElementById('ui-layer')!.style.pointerEvents = 'none';
 }
 
+
+function renderCharacterList() {
+    characterList.innerHTML = '';
+    roomCharacters.forEach(char => {
+        const item = document.createElement('div');
+        item.className = 'list-item';
+        item.style.borderLeftColor = '#' + char.color.toString(16).padStart(6, '0');
+
+        item.innerHTML = `
+            <div class="list-item-info">
+                <strong>${char.name}</strong>
+                <small>Spd: ${char.speed}</small>
+            </div>
+            <div class="list-item-actions">
+                <button class="btn primary small spawn-char-btn" data-id="${char.id}">Spawn</button>
+                <button class="btn danger small delete-char-btn" data-id="${char.id}">X</button>
+            </div>
+        `;
+        characterList.appendChild(item);
+    });
+
+    document.querySelectorAll('.spawn-char-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const charId = (e.currentTarget as HTMLElement).getAttribute('data-id');
+            const char = roomCharacters.find(c => c.id === charId);
+            if (char && currentRoom) {
+                spawnTokenFromTemplate(char, 'character');
+            }
+        });
+    });
+
+    document.querySelectorAll('.delete-char-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const charId = (e.currentTarget as HTMLElement).getAttribute('data-id');
+            if (charId && currentRoom) {
+                socket.emit('delete_character', currentRoom, charId);
+            }
+        });
+    });
+}
+
+function renderPropsList() {
+    propsList.innerHTML = '';
+    roomProps.forEach(prop => {
+        const item = document.createElement('div');
+        item.className = 'list-item';
+        item.style.borderLeftColor = prop.color;
+
+        item.innerHTML = `
+            <div class="list-item-info">
+                <strong>${prop.name}</strong>
+            </div>
+            <div class="list-item-actions">
+                <button class="btn secondary small spawn-prop-btn" data-id="${prop.id}">Spawn</button>
+            </div>
+        `;
+        propsList.appendChild(item);
+    });
+
+    document.querySelectorAll('.spawn-prop-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const propId = (e.currentTarget as HTMLElement).getAttribute('data-id');
+            const prop = roomProps.find(p => p.id === propId);
+            if (prop && currentRoom) {
+                spawnTokenFromTemplate(prop, 'prop');
+            }
+        });
+    });
+}
+
+function spawnTokenFromTemplate(template: any, type: 'character' | 'prop') {
+    const randCol = Math.floor(Math.random() * COLS);
+    const randRow = Math.floor(Math.random() * ROWS);
+
+    let colorVal = 0xffffff;
+    if (typeof template.color === 'number') {
+        colorVal = template.color;
+    } else if (typeof template.color === 'string') {
+        colorVal = parseInt(template.color.replace('#', '0x'), 16);
+    }
+
+    const tokenData: TokenData = {
+        id: 'inst_' + Math.random().toString(36).substr(2, 9),
+        templateId: template.id,
+        x: randCol * GRID_SIZE,
+        y: randRow * GRID_SIZE,
+        color: colorVal,
+        speed: template.speed || 0,
+        avatarUrl: template.avatarUrl,
+        type: type,
+        hasMoved: false
+    };
+
+    socket.emit('spawn_token', currentRoom, tokenData);
+}
+
 // --- Animation Logic ---
 
-function animateTokenMovement(newTokenData: TokenData) {
-    const tokenGraphic = tokenGraphicsMap.get(newTokenData.id);
-    if (!tokenGraphic) {
-        createOrUpdateToken(newTokenData);
+function animateTokenMovement(partialData: Partial<TokenData> & { id: string, x: number, y: number }) {
+    const tokenGraphic = tokenGraphicsMap.get(partialData.id);
+    const existingData = tokensDataMap.get(partialData.id);
+
+    if (!tokenGraphic || !existingData) {
+        createOrUpdateToken(partialData as TokenData);
         return;
     }
 
-    // Update data map immediately so logic sees it there
+    // Update data map immediately by merging so logic sees it there without losing data like color/speed
+    const newTokenData = { ...existingData, ...partialData };
     tokensDataMap.set(newTokenData.id, newTokenData);
 
     // If already animating, force it to end state before starting new
@@ -538,9 +779,24 @@ function animateTokenMovement(newTokenData: TokenData) {
         // y = -4 * h * (x-0.5)^2 + h
         const jumpOffset = -4 * peakHeight * Math.pow(progress - 0.5, 2) + peakHeight;
 
+        // Scale peak calculation (1.0 to 1.3 back to 1.0)
+        const scaleBoost = -4 * 0.3 * Math.pow(progress - 0.5, 2) + 0.3;
+        const currentScale = 1.0 + scaleBoost;
+
         tokenGraphic.position.set(currentX, currentY - jumpOffset);
 
+        // Scale around center
+        // When setting pivot, the visual position shifts by the pivot amount scaled.
+        // We already set tokenGraphic.position to (currentX, currentY - jumpOffset).
+        // To maintain the visual center, we adjust position by pivot.
+        tokenGraphic.pivot.set(GRID_SIZE/2, GRID_SIZE/2);
+        tokenGraphic.x = currentX + GRID_SIZE/2;
+        tokenGraphic.y = (currentY - jumpOffset) + GRID_SIZE/2;
+        tokenGraphic.scale.set(currentScale);
+
         if (progress >= 1) {
+            tokenGraphic.pivot.set(0, 0);
+            tokenGraphic.scale.set(1);
             ticker.destroy();
             animatingTokens.delete(newTokenData.id);
             // Redraw to reset to clean state (stroke, exact position)

@@ -26,7 +26,14 @@ io.on('connection', (socket) => {
     if (!rooms[roomId]) {
       rooms[roomId] = {
         players: [socket.id],
-        tokens: []
+        tokens: [],
+        characters: [],
+        props: [
+            { id: 'prop_table', name: 'Table', type: 'prop', color: '#8B4513' },
+            { id: 'prop_chair', name: 'Chair', type: 'prop', color: '#A0522D' },
+            { id: 'prop_crate', name: 'Crate', type: 'prop', color: '#CD853F' },
+            { id: 'prop_lantern', name: 'Lantern', type: 'prop', color: '#FFD700' }
+        ]
       };
       socket.join(roomId);
       socket.emit('room_created', roomId);
@@ -62,8 +69,31 @@ io.on('connection', (socket) => {
       if (index !== -1) {
         rooms[roomId].tokens[index].x = tokenData.x;
         rooms[roomId].tokens[index].y = tokenData.y;
+        rooms[roomId].tokens[index].hasMoved = tokenData.hasMoved || rooms[roomId].tokens[index].hasMoved;
         io.to(roomId).emit('token_moved', tokenData);
       }
+    }
+  });
+
+
+  socket.on('create_character', (roomId, characterData) => {
+    if (rooms[roomId]) {
+      rooms[roomId].characters.push(characterData);
+      io.to(roomId).emit('character_created', characterData);
+    }
+  });
+
+  socket.on('delete_character', (roomId, characterId) => {
+    if (rooms[roomId]) {
+      rooms[roomId].characters = rooms[roomId].characters.filter(c => c.id !== characterId);
+      io.to(roomId).emit('character_deleted', characterId);
+    }
+  });
+
+  socket.on('end_turn', (roomId) => {
+    if (rooms[roomId]) {
+      rooms[roomId].tokens.forEach(t => t.hasMoved = false);
+      io.to(roomId).emit('turn_ended');
     }
   });
 

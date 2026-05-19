@@ -27,22 +27,51 @@
         <div id="game-ui" class="hidden">
           <div class="top-bar">
             <span id="current-room-display">Room: None</span>
-            <button id="leave-room-btn" class="btn danger small">Leave</button>
+            <div class="top-bar-buttons">
+                <button id="end-turn-btn" class="btn primary small">End Turn</button>
+                <button id="leave-room-btn" class="btn danger small">Leave</button>
+                <button id="toggle-side-panel-btn" class="btn secondary small">☰</button>
+            </div>
           </div>
 
-          <div id="spawn-menu" class="panel floating-panel">
-            <h3>Create Character</h3>
-            <div class="input-group">
-                <label for="char-speed">Speed (cells):</label>
-                <input type="number" id="char-speed" value="3" min="1" max="10" />
+          <div id="side-panel" class="side-panel">
+            <div class="tabs">
+              <button class="tab-btn active" data-target="characters-tab" title="Characters">👥</button>
+              <button class="tab-btn" data-target="props-tab" title="Props">📦</button>
             </div>
-            <div class="spawn-options">
-              <button class="spawn-btn" data-color="0xff0000" style="background-color: red;"></button>
-              <button class="spawn-btn" data-color="0x00ff00" style="background-color: green;"></button>
-              <button class="spawn-btn" data-color="0x0000ff" style="background-color: blue;"></button>
-              <button class="spawn-btn" data-color="0xffff00" style="background-color: yellow;"></button>
+
+            <div id="characters-tab" class="tab-content active">
+              <h3>Characters</h3>
+              <div id="character-list" class="list-container">
+                  <!-- Character templates will be rendered here -->
+              </div>
+
+              <div class="form-container">
+                <h4>Create New Character</h4>
+                <div class="input-group">
+                  <input type="text" id="char-name" placeholder="Name" />
+                </div>
+                <div class="input-group">
+                    <label for="char-speed">Speed:</label>
+                  <input type="number" id="char-speed" placeholder="Speed" value="3" min="1" max="10" />
+                </div>
+                <div class="input-group">
+                  <input type="text" id="char-url" placeholder="Avatar URL (Optional)" />
+                </div>
+                <div class="input-group">
+                    <label for="char-color">Color:</label>
+                    <input type="color" id="char-color" value="#ff0000" />
+                </div>
+                <button id="create-char-btn" class="btn primary full-width">Create Character</button>
+              </div>
             </div>
-            <p class="hint">Select a color to spawn a character.</p>
+
+            <div id="props-tab" class="tab-content">
+              <h3>Props</h3>
+              <div id="props-list" class="list-container">
+                  <!-- Props will be rendered here -->
+              </div>
+            </div>
           </div>
         </div>
       </div>
