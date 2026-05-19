@@ -362,8 +362,6 @@ init();
 // --- Selection & Pathfinding Logic ---
 
 function handleTokenClick(event: any) {
-    // If the host is currently dragging, don't treat it as a click to move
-    if (isDragging) return;
     if (hasMovedDuringPan) return;
 
     // Check if right click (button 2)
@@ -561,16 +559,14 @@ async function createOrUpdateToken(data: any) { // using any locally for isHidde
 
         // Host Drag logic inside token creation
         tokenContainer.on('pointerdown', (e: any) => {
-            if (e.data.button === 0) {
-                e.stopPropagation(); // Prevent panning the map for players and hosts alike
-                if (isHost) {
-                    isDragging = true;
-                    draggedToken = tokenContainer as Container;
-                    const local = tokensContainer.toLocal(e.global);
-                    dragOffset.x = tokenContainer!.x - local.x;
-                    dragOffset.y = tokenContainer!.y - local.y;
-                    tokenContainer!.zIndex = 1000;
-                }
+            if (isHost && e.data.button === 0) {
+                e.stopPropagation(); // Prevent panning the map
+                isDragging = true;
+                draggedToken = tokenContainer as Container;
+                const local = tokensContainer.toLocal(e.global);
+                dragOffset.x = tokenContainer!.x - local.x;
+                dragOffset.y = tokenContainer!.y - local.y;
+                tokenContainer!.zIndex = 1000;
             }
         });
 
@@ -782,8 +778,9 @@ function updateTooltip() {
 
     // Background width based on text
     const bg = new Graphics();
-    bg.roundRect(0, 0, text.width + 20, 30, 8);
-    bg.fill({color: 0x000000, alpha: 0.7});
+    bg.beginFill(0x000000, 0.7);
+    bg.drawRoundedRect(0, 0, text.width + 20, 30, 8);
+    bg.endFill();
     tooltip.addChild(bg);
 
     text.position.set(10, (30 - text.height) / 2);
