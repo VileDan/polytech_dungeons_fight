@@ -5,3 +5,4 @@ dist-ssr
 .env
 .env.*
 .DS_Store
+server_output.log
