@@ -30,6 +30,7 @@
           <div class="button-group">
             <button id="create-room-btn" class="btn primary">Create Room</button>
             <button id="join-room-btn" class="btn secondary">Join Room</button>
+            <button id="change-name-btn" class="btn secondary" style="margin-top: 10px;">Поменять имя</button>
           </div>
           <p id="lobby-error" class="error-msg"></p>
         </div>
@@ -100,6 +101,10 @@
               <input type="number" id="char-speed" placeholder="Speed" value="3" min="1" max="10" />
             </div>
             <div class="input-group">
+                <label for="char-health">Health:</label>
+              <input type="number" id="char-health" placeholder="Health" value="10" min="1" />
+            </div>
+            <div class="input-group">
               <input type="text" id="char-url" placeholder="Avatar URL (Optional)" />
             </div>
             <div class="input-group">
@@ -119,6 +124,7 @@
           <button id="cm-copy" class="cm-btn">Copy</button>
           <button id="cm-paste" class="cm-btn hidden">Paste</button>
           <button id="cm-toggle-visibility" class="cm-btn">Toggle Visibility</button>
+          <button id="cm-change-health" class="cm-btn hidden">Change Health</button>
       </div>
 
       </div>
